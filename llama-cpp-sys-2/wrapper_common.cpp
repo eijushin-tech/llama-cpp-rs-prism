@@ -27,7 +27,13 @@ extern "C" llama_rs_status llama_rs_json_schema_to_grammar(
 
     *out_grammar = nullptr;
     try {
-        const auto schema = nlohmann::ordered_json::parse(schema_json);
+        // llama.cpp put a `common_json` facade in front of nlohmann between
+        // e79e4bf6 (2026-08-12, what this binding pins) and 5ea87dda
+        // (2026-08-25, what the PrismML fork is based on): the schema argument
+        // is now `const common_json &`, and `common_json_is_value` does not
+        // list nlohmann's type, so passing one recurses into the templated
+        // constructor and trips its static_assert rather than converting.
+        const auto schema = common_json::parse(schema_json);
         const auto grammar = json_schema_to_grammar(schema, force_gbnf);
         *out_grammar = llama_rs_dup_string(grammar);
         return *out_grammar ? LLAMA_RS_STATUS_OK : LLAMA_RS_STATUS_ALLOCATION_FAILED;
@@ -143,6 +149,17 @@ extern "C" int llama_rs_fit_params(
         tensor_buft_overrides,
         margins,
         n_ctx_min,
+        // `extra` -- a second model to fit alongside the main one -- is new in
+        // the PrismML fork's base (upstream 5ea87dda, 2026-08-25) and absent
+        // from the llama.cpp this binding pins (e79e4bf6, 2026-08-13). Passing
+        // nullptr keeps the exported signature, and therefore the Rust side,
+        // exactly as it was.
+        //
+        // Worth revisiting rather than leaving forever: co-residency is the
+        // problem this argument solves. Atmo2 currently reserves the talker's
+        // room with a hand-set `-fitt 1280`, measured from the talker alone on
+        // an empty card; `extra` would let the fitter account for it directly.
+        nullptr,
         log_level));
 }
 
